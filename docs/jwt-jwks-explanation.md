@@ -80,16 +80,65 @@ decoder.setJwtValidator(delegating);
 
 ---
 
-## Пояснение различий Mac vs Linux (почему у автора могло работать «из коробки»)
+## Про поле "iss" (issuer) в JWT — что это и частые проблемы
 
-- Docker Desktop на Mac/Windows иногда обеспечивает специальную маршрутизацию `localhost` между хостом и контейнерами, либо автор запускал Keycloak локально на хосте. На Linux `localhost` внутри контейнера указывает на сам контейнер, поэтому запросы к `localhost:9090` не попадут в Keycloak-контейнер. Потому на Linux чаще требуется использовать сервисные имена Docker-сети (`keycloak`) или `host.docker.internal` при соответствующей настройке.
+- Что такое `iss`:
+  - `iss` (issuer) — стандартный claim в JWT, указывающий поставщика токена (issuer). Для Keycloak обычно это URL realm'а, например `http://keycloak:8080/realms/proselyte` или `http://localhost:9090/realms/proselyte`.
 
----
+- Почему `iss` важен:
+  - Ресурсный сервер (например `eventapp`) проверяет не только подпись токена, но и значение `iss`. Spring Security (при использовании `issuer-uri`) требует, чтобы claim `iss` точно совпадал с настроенным `issuer-uri`.
 
-## Заключение и краткие советы
+- Частые причины несоответствий `iss` / `issuer-uri` в Docker-среде:
+  1. Использование `localhost` внутри контейнера. Внутри контейнера `localhost` — это сам контейнер, а не хост или другой сервис. Поэтому Keycloak может выдавать `iss: http://keycloak:8080/...`, а в `application.yml` у сервиса стояло `issuer-uri: http://localhost:9090/...` — возникает mismatch.
+  2. Разные значения `KC_HOSTNAME`, `KEYCLOAK_FRONTEND_URL` и проброс портов. Keycloak генерирует ссылки и `iss` в зависимости от конфигурации хоста/фронтенда.
+  3. Редиректы в браузере ведут на имя, которое не резолвится на хосте (например `keycloak`), поэтому flow ломается и cookie не приходят — визуально это выглядит как ошибки логина, но корень часто в несогласованности хостов.
 
-- Добавление `jwk-set-uri` решило проблему сети и валидации подписи, но не гарантирует проверку issuer — для безопасности навесьте валидатор issuer.
-- Лучший путь — привести issuer в токене и `issuer-uri` в конфиге к одному значению (использовать `keycloak:8080` внутри compose-сети).
-- Для отладки используйте команды `curl` внутри `eventapp` контейнера и декодирование JWT локально.
+- Как быстро проверить значение `iss` в токене и совпадение:
 
-Если хотите, могу: 1) подготовить готовый Java-файл `JwtDecoderConfig` и вставить его в проект; 2) показать точную правку `docker-compose.yml` для `KC_HOSTNAME`; или 3) открыть этот markdown в редакторе — скажите, что предпочитаете.
+1) Декодировать payload JWT и посмотреть поле `iss`:
+
+```bash
+echo '<JWT>' | cut -d '.' -f2 | base64 --decode | jq .
+```
+
+2) Проверить, что `issuer-uri` в `application.yml` совпадает с `iss` в токене.
+
+3) Проверить OIDC discovery (в окружении приложения):
+
+```bash
+# из контейнера eventapp (если Keycloak в Docker)
+docker compose exec eventapp curl -sS http://keycloak:8080/realms/proselyte/.well-known/openid-configuration | jq .issuer
+
+# с хоста (если вы заходите по localhost)
+curl -sS http://localhost:9090/realms/proselyte/.well-known/openid-configuration | jq .issuer
+```
+
+- Как исправить несоответствие (варианты):
+
+1) Соглашение имён (рекомендуемый для dev):
+   - В `docker-compose.yml` у Keycloak выставить `KC_HOSTNAME: keycloak` и `KC_HOSTNAME_STRICT: 'false'`, а в `eventapp` прописать `issuer-uri: http://keycloak:8080/realms/proselyte` — тогда внутренние сервисы будут работать по имени сервиса.
+   - Для доступа через браузер на хосте оставить `KEYCLOAK_FRONTEND_URL: http://localhost:9090` или добавить запись в `/etc/hosts` `127.0.0.1 keycloak` — в зависимости от того, какое поведение вы хотите.
+
+2) Использовать `jwk-set-uri` + ручную проверку issuer (когда discovery недоступен):
+   - Создать `NimbusJwtDecoder` с `withJwkSetUri(...)` и явно навесить валидатор issuer через `decoder.setJwtValidator(...)`.
+   - Это полезно, когда discovery endpoint недоступен из приложения, но JWKs доступны по другому адресу.
+
+3) Поддержка нескольких issuer (если нужно быстро):
+   - Реализовать бин `JwtDecoder`, который пробует несколько issuer/jwk-set-uri (например `http://keycloak:8080` и `http://localhost:9090`) и принимает первый успешный. Это удобно временно, но не рекомендуется для продакшна.
+
+- Безопасность:
+  - Не отключайте проверку issuer в проде. Если вы временно используете `jwk-set-uri` без валидатора issuer для удобства, обязательно позже вернуть строгую проверку `iss`.
+
+- Быстрые команды для диагностики при проблеме:
+
+```bash
+# проверить, какой issuer отдает discovery (из того окружения, где работает приложение)
+# внутри контейнера eventapp:
+docker compose exec eventapp curl -sS http://keycloak:8080/realms/proselyte/.well-known/openid-configuration | jq .issuer
+
+# с хоста (браузерная сторона):
+curl -sS http://localhost:9090/realms/proselyte/.well-known/openid-configuration | jq .issuer
+
+# декодирование токена (повторно):
+echo '<JWT>' | cut -d '.' -f2 | base64 --decode | jq .
+```
