@@ -15,6 +15,7 @@ spring:
       resourceserver:
         jwt:
           issuer-uri: http://localhost:9090/realms/proselyte
+          jwk-set-uri: http://keycloak:8080/realms/proselyte/protocol/openid-connect/certs
 
 server:
   port: 8091
