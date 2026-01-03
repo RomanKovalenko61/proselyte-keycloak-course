@@ -24,3 +24,4 @@ public class KeycloakJwtAuthenticationConverter implements Converter<Jwt, Collec
                 .collect(Collectors.toList());
     }
 }
+

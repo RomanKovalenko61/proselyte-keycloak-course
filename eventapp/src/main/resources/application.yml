@@ -8,21 +8,18 @@ spring:
           keycloak:
             provider: keycloak
             client-id: eventapp
-            client-secret: Cvg0CPwmN9afeXalrEtBt7CoGFemw9BG
+            client-secret: lExXz2zHp2opOBICVJsmevH7Lx5Ie2Oj
             client-name: eventapp
             authorization-grant-type: authorization_code
             scope: openid, profile, email
         provider:
           keycloak:
-            issuer-uri: http://localhost:9090/realms/proselyte
-            token-uri: http://localhost:9090/realms/proselyte/protocol/openid-connect/token
-
+            issuer-uri: ${JWT_ISSUER_URI:http://localhost:9090/realms/proselyte}
+            token-uri: ${KEYCLOAK_TOKEN_URI:http://localhost:9090/realms/proselyte/protocol/openid-connect/token}
       resourceserver:
         jwt:
-          issuer-uri: http://localhost:9090/realms/proselyte
+          issuer-uri: ${JWT_ISSUER_URI:http://localhost:9090/realms/proselyte}
+          jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:9090/realms/proselyte/protocol/openid-connect/certs}
+
 server:
   port: 8091
-
-
-notificationapp:
-  url: http://localhost:8092

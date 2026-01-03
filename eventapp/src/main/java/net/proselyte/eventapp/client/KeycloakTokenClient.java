@@ -37,6 +37,7 @@ public class KeycloakTokenClient {
         HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(params, headers);
 
         ResponseEntity<Map> response = restTemplate.exchange(TOKEN_URL, HttpMethod.POST, request, Map.class);
+        System.out.println("!!! Response from Keycloak: access token " + response.getBody().get("access_token"));
         return (String) response.getBody().get("access_token");
     }
 }
