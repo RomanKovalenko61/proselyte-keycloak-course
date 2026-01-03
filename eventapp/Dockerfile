@@ -1,18 +1,21 @@
 # Стадия сборки
-FROM eclipse-temurin:24-jdk as builder
+FROM gradle:8.14-jdk24 AS builder
 
 WORKDIR /app
 
-COPY . /app
+# Копируем только файлы, влияющие на зависимости, чтобы кэшировать скачивание зависимостей
+COPY build.gradle settings.gradle ./
+COPY gradle.properties* ./
 
 # Кэш слоёв зависимостей (важно!)
-RUN ./gradlew dependencies --no-daemon
+RUN gradle dependencies --no-daemon
 
-# Собираем jar
-RUN ./gradlew bootJar --no-daemon
+# Копируем остальной код и собираем fat jar
+COPY . ./
+RUN gradle bootJar --no-daemon
 
-# Финальный образ
-FROM eclipse-temurin:24-jdk
+# Финальный образ (runtime)
+FROM eclipse-temurin:24-jre
 
 WORKDIR /app
 
